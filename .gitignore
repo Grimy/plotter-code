@@ -1,6 +1,8 @@
 # Generated files
 *.gch
 *.pyc
+*.o
+a.out
 documentation/doxygen/html
 
 # Eclipse IDE

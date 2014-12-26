@@ -124,7 +124,7 @@
 /// Direction of the right motor. True to release the belt when the motor rotates clockwise, false if counter clockwise.
 #define PLT_RIGHT_DIRECTION true
 
-/// Virtual reversing state of the motors. True to reverse the motors, false to don't reverse them.
+/// True to virtually reverse the motors.
 #define PLT_REVERSE_MOTORS true
 
 /// Minimum servo-motor angle (as close as possible to the wall).
@@ -138,3 +138,4 @@
 
 /// Delay after the servo moves, in milliseconds.
 #define PLT_POST_SERVO_DELAY 750
+
