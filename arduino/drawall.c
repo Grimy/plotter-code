@@ -42,9 +42,6 @@ static mmPoint endPos = {0, 0};
 
 // TODO: Interrupt routine with ISR(INT0_vect){...}
 
-void setup(void);
-void loop(void);
-
 static mmPoint dovToMm(dovPoint p) {
 	return (mmPoint) { p.x * drawingScale, p.y * drawingScale };
 }
@@ -173,7 +170,7 @@ static long motorSteps(mmPoint pos, direction dir) {
 
 // TODO: Wait until start button is pressed.
 // TODO: Wait until start signal is raised on the serial port.
-void setup(void) {
+int main(void) {
 	if (!begin())
 		end();
 	loadParameters();
@@ -185,10 +182,4 @@ void setup(void) {
 	writingPen(0);
 	lineTo(endPos);
 	end();
-}
-
-void loop() {}
-
-int main(void) {
-	setup();
 }

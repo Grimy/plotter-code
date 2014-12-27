@@ -8,7 +8,7 @@ a.out: drawall.c drawall.h stub.o
 avr: Makefile drawall.c drawall.h scratch.o
 	avr-gcc $(CFLAGS) -Os drawall.c scratch.o -o avr
 
-stub.o: stub.c drawall.h
+stub.o: Makefile stub.c drawall.h
 	$(GCC) $(CFLAGS) -c stub.c
 
 run: a.out
@@ -17,5 +17,5 @@ run: a.out
 debug: a.out
 	gdb -q -ex 'br main' -ex 'r $(ARGS)' ./$<
 
-scratch.o: scratch.c
+scratch.o: Makefile scratch.c drawall.h
 	avr-gcc $(CFLAGS) -Os -c -D__AVR_ATmega328__ -I/usr/avr/include scratch.c
