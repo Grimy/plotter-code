@@ -50,26 +50,24 @@
 
 // *** Pins allocation ***
 
-/// Pause button interruption pin.
-#define PIN_PAUSE A2
-
-/// Limit switch pin.
-#define PIN_LIMIT_SWITCH A3
-
 /// Servo-motor control pin.
 #define PIN_SERVO A5
 
 /// Left motor direction pin.
-#define PIN_LEFT_MOTOR_DIR 5
+#define LEFT_MOTOR_DIR_PORT DDRD
+#define LEFT_MOTOR_DIR_BIT  5
 
 /// Left motor steps pin.
-#define PIN_LEFT_MOTOR_STEP 6
+#define LEFT_MOTOR_STEP_PORT DDRD
+#define LEFT_MOTOR_STEP_BIT  6
 
 /// Right motor direction pin.
-#define PIN_RIGHT_MOTOR_DIR 7
+#define RIGHT_MOTOR_DIR_PORT DDRD
+#define RIGHT_MOTOR_DIR_BIT  7
 
 /// Right motor steps pin.
-#define PIN_RIGHT_MOTOR_STEP 8
+#define RIGHT_MOTOR_STEP_PORT DDRB
+#define RIGHT_MOTOR_STEP_BIT  0
 
 /// CS pin on the SD card reader pin.
 #define PIN_SD_CS 10
@@ -87,25 +85,11 @@
 #define PIN_REMOTE A4
 
 /// Right motor enabling pin.
-#define PIN_ENABLE_MOTORS A7
+#define ENABLE_MOTORS_PORT DDRC
+#define ENABLE_MOTORS_BIT  7
 
 /// Buzzer pin.
 #define PIN_BUZZER A6
-
-/// SCE screen pin.
-#define PIN_SCREEN_SCE -1
-
-/// RST screen pin.
-#define PIN_SCREEN_RST -1
-
-/// DC screen pin.
-#define PIN_SCREEN_DC -1
-
-/// SDIN screen pin.
-#define PIN_SCREEN_SDIN -1
-
-/// SCLK screen pin.
-#define PIN_SCREEN_SCLK -1
 
 // *** Plotter physical attributes ***
 
@@ -118,14 +102,14 @@
 /// Pinion diameter, in micrometers.
 #define PLT_PINION_DIAMETER 12730
 
-/// Direction of the left motor. True to release the belt when the motor rotates clockwise, false if counter clockwise.
-#define PLT_LEFT_DIRECTION false
+/// Direction of the left motor when the belt is released: 1 means clockwise, 0 counter-clockwise.
+#define PLT_LEFT_DIRECTION 0
 
-/// Direction of the right motor. True to release the belt when the motor rotates clockwise, false if counter clockwise.
-#define PLT_RIGHT_DIRECTION true
+/// Direction of the right motor when the belt is released: 1 means clockwise, 0 counter-clockwise.
+#define PLT_RIGHT_DIRECTION 1
 
 /// True to virtually reverse the motors.
-#define PLT_REVERSE_MOTORS true
+#define PLT_REVERSE_MOTORS 1
 
 /// Minimum servo-motor angle (as close as possible to the wall).
 #define PLT_MIN_SERVO_ANGLE 55

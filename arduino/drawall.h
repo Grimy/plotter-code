@@ -1,20 +1,21 @@
+#include <stdint.h>
+
 #include "plotter.h"
 
 /// Conversion ratio: mm per motor step
-// PLT_STEPS * 2 because it is the rising edge which drive the motor steps.
-#define PI 3.14159265358979323846
-#define stepLength ((PI * PLT_PINION_DIAMETER / 1000) / (PLT_STEPS * 2 * (1 << PLT_STEP_MODE)))
+#define stepLength (3.14159265358979323846 * (PLT_PINION_DIAMETER / 1000) \
+		/ (PLT_STEPS << PLT_STEP_MODE))
 
 typedef enum { LEFT, RIGHT } direction;
-typedef struct { unsigned int x; unsigned int y; } dovPoint;
+typedef struct { uint16_t x; uint16_t y; } dovPoint;
 typedef struct { double x; double y; } mmPoint;
 
 extern long beltLength[2];
 extern unsigned int span;
 
-int init(void);
+int begin(void);
 void end(void);
 void setAngle(int angle);
-void delay(unsigned int micros);
+void sleepMicros(uint32_t micros);
 void step(direction dir, int pull);
 

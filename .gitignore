@@ -3,6 +3,7 @@
 *.pyc
 *.o
 a.out
+avr
 documentation/doxygen/html
 
 # Eclipse IDE

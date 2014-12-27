@@ -19,11 +19,11 @@
 #include "drawall.h"
 
 #define LINE_MAX_LENGTH 32
-#define max(a, b) ((a) > (b) ? (a) : (b))
 #define NORM(x, y) (sqrt((x) * (x) + (y) * (y)))
 
 /// Length of the belts, in motor steps.
 long beltLength[2];
+
 // mm
 unsigned int span = 3000;
 
@@ -49,33 +49,19 @@ static mmPoint dovToMm(dovPoint p) {
 	return (mmPoint) { p.x * drawingScale, p.y * drawingScale };
 }
 
-static mmPoint stepsToMm(long offsets[static 2]) {
+static mmPoint stepsToMm(long offsets[]) {
 	double lbl = (beltLength[LEFT] + offsets[LEFT]) * stepLength;
 	double rbl = (beltLength[RIGHT] + offsets[RIGHT]) * stepLength;
 	double x = (lbl * lbl - rbl * rbl + span * span) / (double) (2 * span);
-	double y = sqrt(max(0, lbl * lbl - x * x));
+	double y = sqrt(lbl * lbl - x * x);
 	return (mmPoint) { x - drawingPos.x, y - drawingPos.y };
 }
 
-static double distance(mmPoint a, mmPoint b) {
-	return sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
-}
-
-/* static double distance(mmPoint dest, long offsets[static 2]) { */
-	/* double lbl = (beltLength[LEFT] + offsets[LEFT]) * stepLength; */
-	/* double rbl = (beltLength[RIGHT] + offsets[RIGHT]) * stepLength; */
-	/* double x = (lbl * lbl - rbl * rbl + span * span) / (double) (2 * span); */
-	/* double y = sqrt(max(0, lbl * lbl - x * x)); */
-	/* x -= drawingPos.x + dest.x; */
-	/* y -= drawingPos.y + dest.y; */
-	/* return sqrt(x * x + y * y); */
-/* } */
-
 static void writingPen(int shouldWrite) {
 	// TODO multiply by drawingPenDep
-	delay(PLT_PRE_SERVO_DELAY * 1000);
+	sleepMicros(PLT_PRE_SERVO_DELAY * 1000L);
 	setAngle(shouldWrite ? PLT_MIN_SERVO_ANGLE : PLT_MAX_SERVO_ANGLE);
-	delay(PLT_POST_SERVO_DELAY * 1000);
+	sleepMicros(PLT_POST_SERVO_DELAY * 1000L);
 }
 
 static void loadParameters() {
@@ -126,63 +112,53 @@ static void loadParameters() {
 }
 
 static void lineTo(mmPoint dest) {
-	double distances[4];
-	static long offsets[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+	mmPoint moves[9];
+	double distances[9];
+	double deviations[9];
+	static long offsets[9][2] = {{0, 0},
+		{1, 0}, {-1, 0}, {0, 1}, {0, -1},
+		{1, -1}, {-1, 1}, {-1, -1}, {1, 1}};
 	mmPoint pos = stepsToMm(offsets[0]);
-	int prevMin = -1;
 	
 	// The line’s equation is ax + by + c = 0
-	double a = dest.y - pos.y, b = dest.x - pos.x;
+	double a = dest.y - pos.y, b = pos.x - dest.x;
 	double c = dest.x * pos.y - dest.y * pos.x;
-	double norm = sqrt(a * a + b * b);
+	double norm = NORM(a, b);
 	a /= norm; b /= norm; c /= norm;
 
 	printf("\nMOVE TO: %f, %f\n", dest.x, dest.y);
+	printf("a=%f, b=%f, c=%f\n", a, b, c);
 
-	for (;;) {
-		for (int i = 0; i < 4; ++i) {
-			mmPoint new = stepsToMm(offsets[i]);
-			distances[i] = distance(dest, new) + fabs(a * new.x + b * new.y + c);
+	for (int min = -1; min;) {
+		for (int i = 0; i < 9; ++i) {
+			moves[i] = stepsToMm(offsets[i]);
+			distances[i] = NORM(dest.x - moves[i].x, dest.y - moves[i].y);
+			deviations[i] = fabs(a * moves[i].x + b * moves[i].y + c);
 		}
-		int min = 0;
-		for (int i = 1; i < 4; ++i)
-			if (distances[i] < distances[min])
+		min = 0;
+		for (int i = 1; i < 9; ++i)
+			if (deviations[i] < 4 * stepLength && distances[i] < distances[min])
 				min = i;
-		if (min == (prevMin ^ 1))
-			break;
-		prevMin = min;
 		beltLength[LEFT] += offsets[min][LEFT];
 		beltLength[RIGHT] += offsets[min][RIGHT];
-		delay((unsigned) ((distances[0] - distances[min]) / speed));
-		direction dir = offsets[min][LEFT] ? LEFT : RIGHT;
-		step(dir, offsets[min][dir] < 0);
+		sleepMicros((unsigned) ((distances[0] - distances[min]) / speed));
+		if (offsets[min][LEFT])
+			step(LEFT, offsets[min][LEFT] < 0);
+		if (offsets[min][RIGHT])
+			step(RIGHT, offsets[min][RIGHT] < 0);
 	}
-}
-
-static int readPoint(dovPoint *p) {
-	int x = getchar();
-	if (x < 0)
-		return 0;
-	x = x << 8 | getchar();
-	int y = getchar();
-	if (y < 0)
-		return 0;
-	y = y << 8 | getchar();
-	p->x = (unsigned) x;
-	p->y = (unsigned) y;
-	return 1;
 }
 
 static void draw() {
 	// process line until we can read the file
 	dovPoint point;
-	readPoint(&point);
+	fread(&point, sizeof(point), 1, stdin);
 	if (point.x != 0x2339 || point.y != 0xFFAF)
 		end();
-	readPoint(&point);
-	readPoint(&point);
-	readPoint(&point);
-	while (readPoint(&point)) {
+	fread(&point, sizeof(point), 1, stdin);
+	fread(&point, sizeof(point), 1, stdin);
+	fread(&point, sizeof(point), 1, stdin);
+	while (fread(&point, sizeof(point), 1, stdin)) {
 		lineTo(dovToMm(point));
 	}
 }
@@ -192,19 +168,19 @@ static long motorSteps(mmPoint pos, direction dir) {
 	double y = pos.y + drawingPos.y;
 	if (dir == RIGHT)
 		x = span - x;
-	return (long) (sqrt(x * x + y * y) / stepLength);
+	return (long) (NORM(x, y) / stepLength);
 }
 
 // TODO: Wait until start button is pressed.
 // TODO: Wait until start signal is raised on the serial port.
 void setup(void) {
-	if (!init())
+	if (!begin())
 		end();
 	loadParameters();
 	setAngle(PLT_MAX_SERVO_ANGLE);
 	beltLength[LEFT]  = motorSteps(initPos, LEFT);
 	beltLength[RIGHT] = motorSteps(initPos, RIGHT);
-	delay(initialDelay * 1000);
+	sleepMicros(initialDelay * 1000L);
 	draw();
 	writingPen(0);
 	lineTo(endPos);

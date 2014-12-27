@@ -11,7 +11,7 @@ static void printPos() {
 	printf("%f, %f\n", x, y);
 }
 
-int init(void) {
+int begin(void) {
 	puts("init\n");
 	return 1;
 }
@@ -24,7 +24,7 @@ void setAngle(int angle) {
 	printf("Angle: %d\n", angle);
 }
 
-void delay(unsigned int micros) {
+void sleepMicros(uint32_t micros) {
 	(void) micros;
 	/* printf("Delay: %d\n", micros); */
 }
@@ -34,7 +34,6 @@ static int blah = 0;
 void step(direction dir, int pull) {
 	(void) dir;
 	(void) pull;
-	/* printf("Step: %s %s\n", dir ? "right" : "left", pull ? "pull" : "push"); */
-	if (++blah % 999 == 0)
+	if (++blah % 9999 == 0)
 		printPos();
 }
