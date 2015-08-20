@@ -14,18 +14,28 @@
  * Main library file.
  */
 
-#include <drawall.h>
+#include "drawall.h"
 
-// TODO: make a method to write data on serial, with #if EN_SERIAL test
+#ifndef EN_SERIAL
+	#define serialBegin(x) ((void) 0)
+	#define serialWrite(x) ((void) 0)
+	#define serialPrint(x) ((void) 0)
+	#define serialPrintln(x) ((void) 0)
+#else
+	#define serialBegin(x) Serial.begin(x)
+	#define serialWrite(x) Serial.print(#x)
+	#define serialPrint(x) Serial.print(x)
+	#define serialPrintln(x) Serial.println(x)
+#endif
+
+#define STEP_LENGTH ((PI * PLT_PINION_DIAMETER / 1000) / (PLT_MOTORS_STEPS * 2 << PLT_STEP_MODE))
 
 void Drawall::start() {
 	pinInitialization();
 
 	digitalWrite(PIN_ENABLE_MOTORS, LOW); // disable motors
 
-#if EN_SERIAL
-	Serial.begin(PLT_SERIAL_BAUDS);
-#endif
+	serialBegin(PLT_SERIAL_BAUDS);
 
 	if (!SD.begin(PIN_SD_CS)) {
 		error(ERR_CARD_NOT_FOUND);
@@ -34,9 +44,9 @@ void Drawall::start() {
 	// Load all parameters from the configuration file
 	loadParameters();
 
-	drawingInsertConf = drawingInsertConf/float(100)*PLT_MAX_SERVO_ANGLE + PLT_MIN_SERVO_ANGLE;
-	movingInsertConf = movingInsertConf/float(100)*PLT_MAX_SERVO_ANGLE + PLT_MIN_SERVO_ANGLE;
-	drawingScale = (sheetWidthConf>sheetHeightConf) ? sheetWidthConf/float(65535) : sheetHeightConf/float(65535);
+	drawingInsertConf = drawingInsertConf/100.0*PLT_MAX_SERVO_ANGLE + PLT_MIN_SERVO_ANGLE;
+	movingInsertConf = movingInsertConf/100.0*PLT_MAX_SERVO_ANGLE + PLT_MIN_SERVO_ANGLE;
+	drawingScale = (sheetWidthConf > sheetHeightConf ? sheetWidthConf : sheetHeightConf) / 65535.0;
 
 	servo.attach(PIN_SERVO);
 	servo.write(movingInsertConf);
@@ -44,58 +54,46 @@ void Drawall::start() {
 
 	isWriting = true; // to make write() works for the first time.
 
-	stepLength = getStepLength();
-
 	// Get the belts length
-	leftLength = positionToLeftLength(initPosXConf, initPosYConf);
-	rightLength = positionToRightLength(initPosXConf, initPosYConf);
+	length[LEFT] = positionToLeftLength(initPosXConf, initPosYConf);
+	length[RIGHT] = positionToRightLength(initPosXConf, initPosYConf);
 
-	delayBetweenSteps = getDelay(maxSpeedConf);
-
-#if EN_SERIAL
 	// Send initialization data to computer
-	Serial.println("READY");
+	serialPrintln("READY");
 	delay(100);
+	serialWrite(DRAW_START_INSTRUCTIONS);
+	serialPrintln(spanConf);
+	serialPrintln(sheetPosXConf);
+	serialPrintln(sheetPosYConf);
+	serialPrintln(sheetWidthConf);
+	serialPrintln(sheetHeightConf);
+	serialPrintln(length[LEFT]);
+	serialPrintln(length[RIGHT]);
+	serialPrintln(STEP_LENGTH * 1000);
+	serialWrite(DRAW_END_INSTRUCTIONS);
+	serialWrite(DRAW_WAITING);
 
-	Serial.write(DRAW_START_INSTRUCTIONS);
-	Serial.println(spanConf);
-	Serial.println(sheetPosXConf);
-	Serial.println(sheetPosYConf);
-	Serial.println(sheetWidthConf);
-	Serial.println(sheetHeightConf);
-	Serial.println(leftLength);
-	Serial.println(rightLength);
-	Serial.println(stepLength * 1000);
-	Serial.write(DRAW_END_INSTRUCTIONS);
-
-	Serial.write(DRAW_WAITING);
-#endif
 	while (digitalRead(PIN_PAUSE) == HIGH);
 	digitalWrite(PIN_ENABLE_MOTORS, HIGH); // enable motors
 	delay(PLT_ANTIBOUNCE_BUTTON_DELAY);
 
 	// Draw area if long push
-	if(digitalRead(PIN_PAUSE) == LOW) {
+	if (digitalRead(PIN_PAUSE) == LOW) {
 		delay(PLT_ANTIBOUNCE_BUTTON_DELAY);
 		showArea();
-		while(digitalRead(PIN_PAUSE) == HIGH);
+		while (digitalRead(PIN_PAUSE) == HIGH);
 	}
 
 	delay(initDelayConf);
-	draw();
-	end();
 }
 
 void Drawall::pinInitialization() {
 	// Motors
-
 	pinMode(PIN_ENABLE_MOTORS, OUTPUT);
-
-	pinMode(PIN_LEFT_MOTOR_STEPS, OUTPUT);
-	pinMode(PIN_RIGHT_MOTOR_STEPS, OUTPUT);
-
-	pinMode(PIN_LEFT_MOTOR_DIR, OUTPUT);
-	pinMode(PIN_RIGHT_MOTOR_DIR, OUTPUT);
+	pinMode(PIN_MOTOR_STEP[LEFT], OUTPUT);
+	pinMode(PIN_MOTOR_STEP[RIGHT], OUTPUT);
+	pinMode(PIN_MOTOR_DIR[LEFT], OUTPUT);
+	pinMode(PIN_MOTOR_DIR[RIGHT], OUTPUT);
 
 	// Memory card
 	pinMode(PIN_SD_CS, OUTPUT);
@@ -105,10 +103,8 @@ void Drawall::pinInitialization() {
 	digitalWrite(PIN_PAUSE, HIGH);
 
 #if EN_LIMIT_SENSORS
-	// Limit sensors
 	pinMode(PIN_LEFT_CAPTOR, INPUT);
 	pinMode(PIN_RIGHT_CAPTOR, INPUT);
-
 	// Enable sensors internal pull-ups
 	digitalWrite(PIN_LEFT_CAPTOR, HIGH);
 	digitalWrite(PIN_RIGHT_CAPTOR, HIGH);
@@ -119,7 +115,6 @@ void Drawall::pinInitialization() {
 #endif
 
 #if EN_SCREEN
-	// Screen
 	pinMode(PIN_SCREEN_SCE, OUTPUT);
 	pinMode(PIN_SCREEN_RST, OUTPUT);
 	pinMode(PIN_SCREEN_DC, OUTPUT);
@@ -129,34 +124,17 @@ void Drawall::pinInitialization() {
 }
 
 // TODO use a Macro Expansion
-float Drawall::getStepLength() {
-	// PLT_STEPS * 2 because it is the rising edge which drive the motor steps.
-	return (PI * PLT_PINION_DIAMETER / 1000)
-			/ (PLT_MOTORS_STEPS * 2 * pow(2, PLT_STEP_MODE));
+float Drawall::positionToLeftLength(float posX, float posY) {
+	float x = sheetPosXConf + posX;
+	float y = sheetPosYConf + sheetHeightConf - posY;
+	return sqrt(x*x + y*y) / STEP_LENGTH;
 }
 
 // TODO use a Macro Expansion
-float Drawall::getDelay(unsigned int speed) {
-	return 1000000 * stepLength / float(speed);
-}
-
-// TODO use a Macro Expansion
-long Drawall::positionToLeftLength(float posX, float posY) {
-	return sqrt(
-			pow(((float) sheetPosXConf + posX) / stepLength, 2)
-					+ pow(
-							((float) sheetPosYConf + sheetHeightConf - posY)
-									/ stepLength, 2));
-}
-
-// TODO use a Macro Expansion
-long Drawall::positionToRightLength(float posX, float posY) {
-	return sqrt(
-			pow(((float) spanConf - (float) sheetPosXConf - posX) / stepLength,
-					2)
-					+ pow(
-							((float) sheetPosYConf + sheetHeightConf - posY)
-									/ stepLength, 2));
+float Drawall::positionToRightLength(float posX, float posY) {
+	float x = spanConf - sheetPosXConf - posX;
+	float y = sheetPosYConf + sheetHeightConf - posY;
+	return sqrt(x*x + y*y) / STEP_LENGTH;
 }
 
 void Drawall::writingPen(bool shouldWrite) {
@@ -167,11 +145,8 @@ void Drawall::writingPen(bool shouldWrite) {
 		moveServo(drawingInsertConf);
 		delay(PLT_POST_SERVO_DELAY);
 
-#if EN_SERIAL
-		Serial.write(DRAW_WRITING);
-		Serial.println("\nDRAW_WRITING");
-
-#endif
+		serialWrite(DRAW_WRITING);
+		serialPrintln("\nDRAW_WRITING");
 		isWriting = true;
 	} else if (!shouldWrite && isWriting) {
 		// If pen is writing and shouldn't
@@ -179,49 +154,20 @@ void Drawall::writingPen(bool shouldWrite) {
 		delay(PLT_PRE_SERVO_DELAY);
 		moveServo(movingInsertConf);
 		delay(PLT_POST_SERVO_DELAY);
-
-#if EN_SERIAL
-		Serial.write(DRAW_MOVING);
-		Serial.println("\nDRAW_MOVING");
-#endif
+		serialWrite(DRAW_MOVING);
+		serialPrintln("\nDRAW_MOVING");
 		isWriting = false;
 	}
 }
 
-void Drawall::leftStep(bool shouldPull) {
-	if (shouldPull) {
-		leftLength--;
-#if EN_SERIAL
-		Serial.write(DRAW_PULL_LEFT);
-#endif
-	} else {
-		leftLength++;
-#if EN_SERIAL
-		Serial.write(DRAW_RELEASE_LEFT);
-#endif
+void Drawall::step(Direction dir, bool pull) {
+	// TODO digitalWrite() should be called only when the direction is changing
+	length[dir] += pull ? -1 : 1;
+	if (pulled[dir] != pull) {
+		digitalWrite(PIN_MOTOR_DIR[dir], PLT_DIRECTION[dir] ^ pull);
+		pulled[dir] = pull;
 	}
-
-	digitalWrite(
-	PLT_REVERSE_MOTORS ? PIN_RIGHT_MOTOR_STEPS : PIN_LEFT_MOTOR_STEPS,
-			leftLength % 2);
-}
-
-void Drawall::rightStep(bool shouldPull) {
-	if (shouldPull) {
-		rightLength--;
-#if EN_SERIAL
-		Serial.write(DRAW_PULL_RIGHT);
-#endif
-	} else {
-		rightLength++;
-#if EN_SERIAL
-		Serial.write(DRAW_RELEASE_RIGHT);
-#endif
-	}
-
-	digitalWrite(
-	PLT_REVERSE_MOTORS ? PIN_LEFT_MOTOR_STEPS : PIN_RIGHT_MOTOR_STEPS,
-			rightLength % 2);
+	digitalWrite(PIN_MOTOR_STEP[dir], length[dir] % 2);
 }
 
 void Drawall::line(float x, float y) {
@@ -266,7 +212,7 @@ void Drawall::processSDLine() {
 	car = file.read();
 
 	if (car == ';') {
-		while(file.read() != '\n');
+		while (file.read() != '\n');
 		return;
 	}
 
@@ -295,20 +241,18 @@ void Drawall::processSDLine() {
 
 	// Process the GCode function
 	if (!strcmp(functionName, "G0")) {
-		move(parameters[0], parameters[1]); // move
+		move(parameters[0], parameters[1]);
 	} else if (!strcmp(functionName, "G1")) {
-		line(parameters[0], parameters[1]); // draw
+		line(parameters[0], parameters[1]);
 	} else if (!strcmp(functionName, "G4")) {
-		delay(1000 * parameters[0]); // drink some coffee
-		Serial.write(DRAW_WAITING);
+		delay(1000 * parameters[0]);
 	} else {
-		warning(WARN_UNKNOWN_GCODE_FUNCTION); // raise warning
+		warning(WARN_UNKNOWN_GCODE_FUNCTION);
 	}
 }
 
 void Drawall::moveServo(unsigned int desiredAngle) {
-	while(currentServoAngle != desiredAngle)
-	{
+	while (currentServoAngle != desiredAngle) {
 		currentServoAngle += (desiredAngle > currentServoAngle ? 1 : -1);
 		servo.write(currentServoAngle);
 		delay(PLT_PAUSE_MOVING_SERVO);
@@ -316,85 +260,41 @@ void Drawall::moveServo(unsigned int desiredAngle) {
 }
 
 void Drawall::segment(float x, float y) {
-	unsigned long leftTargetLength = positionToLeftLength(
-			drawingScale * x, drawingScale * y);
-	unsigned long rightTargetLength = positionToRightLength(
-			drawingScale * x, drawingScale * y);
-
-	// get the number of steps to do
-	long nbPasG = leftTargetLength - leftLength;
-	long nbPasD = rightTargetLength - rightLength;
-
-	bool pullLeft;
-	bool pullRight;
-
-	float delaiG;
-	float delaiD;
-
-	unsigned long dernierTempsG;
-	unsigned long dernierTempsD;
-
-	// get the direction
-	pullLeft = nbPasG < 0;
-	pullRight = nbPasD < 0;
+	float target[2] = {drawingScale * positionToLeftLength(x, y), drawingScale * positionToRightLength(x, y)};
+	float steps[2] = {target[LEFT] - length[LEFT], target[RIGHT] - length[RIGHT]};
+	bool pull[2] = {steps[LEFT] < 0, steps[RIGHT] < 0};
+	float interval[2];
+	unsigned long time[2] = {micros(), micros()};
 
 	// Since we have the direction, we can leave the sign
-	nbPasG = abs(nbPasG);
-	nbPasD = abs(nbPasD);
+	steps[LEFT] = abs(steps[LEFT]);
+	steps[RIGHT] = abs(steps[RIGHT]);
 
-	if (nbPasG > nbPasD) {
-		delaiG = delayBetweenSteps;
-		delaiD = delayBetweenSteps * ((float) nbPasG / (float) nbPasD);
+	if (steps[LEFT] > steps[RIGHT]) {
+		interval[LEFT] = delayBetweenSteps;
+		interval[RIGHT] = delayBetweenSteps * steps[LEFT] / steps[RIGHT];
 	} else {
-		delaiD = delayBetweenSteps;
-		delaiG = delayBetweenSteps * ((float) nbPasD / (float) nbPasG);
+		interval[RIGHT] = delayBetweenSteps;
+		interval[LEFT] = delayBetweenSteps * steps[RIGHT] / steps[LEFT];
 	}
 
-	dernierTempsG = micros();
-	dernierTempsD = micros();
-
-	// TODO digitalWrite() should be called only when the direction is changing
-
-	if (pullLeft) {
-		digitalWrite(
-		PLT_REVERSE_MOTORS ? PIN_RIGHT_MOTOR_DIR : PIN_LEFT_MOTOR_DIR,
-		PLT_LEFT_DIRECTION);
-	} else {
-		digitalWrite(
-		PLT_REVERSE_MOTORS ? PIN_RIGHT_MOTOR_DIR : PIN_LEFT_MOTOR_DIR,
-				!PLT_LEFT_DIRECTION);
-	}
-
-	if (pullRight) {
-		digitalWrite(
-		PLT_REVERSE_MOTORS ? PIN_LEFT_MOTOR_DIR : PIN_RIGHT_MOTOR_DIR,
-		PLT_RIGHT_DIRECTION);
-	} else {
-		digitalWrite(
-		PLT_REVERSE_MOTORS ? PIN_LEFT_MOTOR_DIR : PIN_RIGHT_MOTOR_DIR,
-				!PLT_RIGHT_DIRECTION);
-	}
-
-	while (nbPasG > 0 || nbPasD > 0) {
-
+	while (steps[LEFT] > 0 || steps[RIGHT] > 0) {
 		if (digitalRead(PIN_PAUSE) == LOW) {
-			delay(PLT_ANTIBOUNCE_BUTTON_DELAY); // anti-bounce
-			
-			while(digitalRead(PIN_PAUSE) == HIGH);
-			delay(PLT_ANTIBOUNCE_BUTTON_DELAY); // anti-bounce
+			delay(PLT_ANTIBOUNCE_BUTTON_DELAY);
+			while (digitalRead(PIN_PAUSE) == HIGH);
+			delay(PLT_ANTIBOUNCE_BUTTON_DELAY);
 		}
 
-		// if delay is reached and there are steps to do
-		if ((nbPasG > 0) && (micros() - dernierTempsG >= delaiG)) {
-			dernierTempsG = micros(); // save current time
-			leftStep(pullLeft); // do the step
-			nbPasG--; // decrement the remaining steps
+		if ((steps[LEFT] > 0) && (micros() - time[LEFT] >= interval[LEFT])) {
+			time[LEFT] = micros();
+			step(LEFT, pull[LEFT]);
+			steps[LEFT]--;
 		}
 
-		if ((nbPasD > 0) && (micros() - dernierTempsD >= delaiD)) {
-			dernierTempsD = micros();
-			rightStep(pullRight);
-			nbPasD--;
+		if ((steps[RIGHT] > 0) && (micros() - time[RIGHT] >= interval[RIGHT])) {
+			time[RIGHT] = micros();
+			step(RIGHT, pull[RIGHT]);
+			steps[RIGHT]--;
 		}
 	}
 
@@ -403,20 +303,15 @@ void Drawall::segment(float x, float y) {
 }
 
 void Drawall::error(SerialData errorNumber) {
-#if EN_SERIAL
-	Serial.print((byte) errorNumber);
-#endif
+	serialPrint((byte) errorNumber);
 	// TODO ring buzzer
 	delay(1000);
 	writingPen(false);
-	while (true)
-		;
+	while (true);
 }
 
 void Drawall::warning(SerialData warningNumber) {
-#if EN_SERIAL
-	Serial.print((byte) warningNumber);
-#endif
+	serialPrint((byte) warningNumber);
 	// TODO ring buzzer
 }
 
@@ -443,21 +338,19 @@ void Drawall::showArea() {
 	drawingHeight = sheetHeightConf; // do not subtract the picture height
 
 	file.close();
-#if EN_SERIAL
-	Serial.print(DRAW_END_DRAWING);
-#endif
+	serialPrint(DRAW_END_DRAWING);
 }
 
 void Drawall::draw() {
 	char name[15];
-	char car;
+	char car = '\0';
 	int i = 0;
 	int j = 0;
 	int drawingNumber = 0;
 
 	while (car != '\n') {
 		car = drawingNamesConf[i++];
-		if(car != ',' && car != '\0') {
+		if (car != ',' && car != '\0') {
 			name[j++] = car;
 		} else {
 			name[j] = '\0';
@@ -466,7 +359,7 @@ void Drawall::draw() {
 			// Wait for button press before to start the next drawing
 			drawingNumber++;
 
-			if(drawingNumber > 1) {
+			if (drawingNumber > 1) {
 				while (digitalRead(PIN_PAUSE) == HIGH);
 				delay(initDelayConf);
 			}
@@ -477,6 +370,7 @@ void Drawall::draw() {
 			// TODO ring buzzer
 		}
 	}
+	end();
 }
 
 void Drawall::draw(char* drawingName) {
@@ -493,9 +387,7 @@ void Drawall::draw(char* drawingName) {
 	drawingHeight = sheetHeightConf; // do not subtract the picture height
 
 	file.close();
-#if EN_SERIAL
-	Serial.print(DRAW_END_DRAWING);
-#endif
+	serialPrint(DRAW_END_DRAWING);
 }
 
 void Drawall::end() {
@@ -504,9 +396,9 @@ void Drawall::end() {
 }
 
 void Drawall::message(char* message) {
-	Serial.write(DRAW_START_MESSAGE);
-	Serial.println(message);
-	Serial.write(DRAW_END_MESSAGE);
+	serialWrite(DRAW_START_MESSAGE);
+	serialPrintln(message);
+	serialWrite(DRAW_END_MESSAGE);
 }
 
 void Drawall::loadParameters() {
@@ -518,12 +410,11 @@ void Drawall::loadParameters() {
 	char *value;
 
 	byte i;
-	byte line_length;
 	int nb_parsed = 0;
 
 	// Check if the file exists
 	// TODO Something wrong here with serial communication
-	// if(!SD.exists(fileName)) {
+	// if (!SD.exists(fileName)) {
 	// 	error(ERR_FILE_DONT_EXISTS);
 	// }
 
@@ -559,9 +450,9 @@ void Drawall::loadParameters() {
 		key[i] = '\0';
 		value = &buffer[i + 1];
 
-		Serial.print(key);
-		Serial.print("=");
-		Serial.println(value);
+		serialPrint(key);
+		serialPrint("=");
+		serialPrintln(value);
 
 		// TODO use constants for the parameters names
 
@@ -581,7 +472,7 @@ void Drawall::loadParameters() {
 		} else if (!strcmp(key, "initDelay")) {
 			initDelayConf = atoi(value);
 		} else if (!strcmp(key, "maxSpeed")) {
-			maxSpeedConf = atoi(value);
+			delayBetweenSteps = 1E6 * STEP_LENGTH / atof(value);
 		} else if (!strcmp(key, "sheetWidth")) {
 			sheetWidthConf = atoi(value);
 		} else if (!strcmp(key, "sheetHeight")) {
@@ -610,10 +501,8 @@ void Drawall::loadParameters() {
 
 	configFile.close();
 
-	if (nb_parsed < NB_PARAMETERS) {
+	if (nb_parsed < NB_PARAMETERS)
 		error(ERR_TOO_FEW_PARAMETERS);
-	} else if (nb_parsed > NB_PARAMETERS) {
+	if (nb_parsed > NB_PARAMETERS)
 		error(ERR_TOO_MANY_PARAMETERS);
-	}
-
 }

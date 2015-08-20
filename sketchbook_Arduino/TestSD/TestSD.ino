@@ -29,6 +29,7 @@
  */
  // include the SD library:
 #include <SD.h>
+#include <drawall.h>
 
 #include "pins.h"
 #include "hardware.h"

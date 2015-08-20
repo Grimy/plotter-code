@@ -10,21 +10,14 @@
  * © 2012–2015 Nathanaël Jourdane
  */
 
-/*
-PLEASE UPLOAD THIS PROGRAM ONCE ON THE PLOTTER MICROCONTROLLER.
-ALL THE OPTIONS FOR THE DRAWING MUST BE SET IN THE CONFIGURATION FILE, STORED IN THE SD CARD.
-YOU SHOULD NOT MODIFY THIS FILE, EXCEPT IF YOU WANT TO HACK THE DRAWALL.
-*/
-
 #include <SD.h>
 #include <Servo.h>
 #include <drawall.h>
 
-Drawall d;
-
-void setup() {
-}
+void setup() {}
 
 void loop() {
-  d.start();
+	Drawall d;
+	d.start();
+	d.draw();
 }
